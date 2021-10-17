@@ -436,6 +436,9 @@ void process_serial(char* buffer) {
       EEPROM.write(0, config);
       SerialUSB.println("Configuration saved.");
       break;
+    case 'g':
+      shift_gear();
+      break;
     case 'E':
       if(!memcmp("ENABLE", buffer, 6)) {
         config_allowed = 1;
@@ -484,10 +487,12 @@ void shift_gear() {
   if(ratio_state) return; // Ignore shifting requests if already in progress.
   if(ratio_current == RATIO_LOW) {
     // It's always safe to switch to high ratio
+    SerialUSB.println("Shifting to HIGH.");
     ratio_state = 1;
     ratio_change_started = millis();
   } else {
     // It's only safe to switch to low ratio at low rpm
+    SerialUSB.println("Shifting to LOW.");
     if(mg1_speed < -4000 || mg1_speed > 4000) return;
     ratio_state = 1;
     ratio_change_started = millis();
