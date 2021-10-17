@@ -8,7 +8,7 @@
  * V7  - add HV precharge and control- oil pump relay=midpack and precharge contactor, out1= main contactor.
  * V8  - stripped down rewrite by CS. basic functionality.
  * V9  - add serial control for settings (CS)
- * V10 - gear shifting (icomplete / untested) (CS)
+ * V10 - add wifi commectivity, begin gear shifting (gear shifting incomplete) (CS)
  * 
  * Copyright 2019 T.Darby , D.Maguire, C.Smurthwaite
  * openinverter.org
@@ -19,9 +19,9 @@
 #include <due_wire.h>
 #include <Wire_EEPROM.h>
 
-// Two timers are used, one to drive the inverter and a second to print useful information to a USB port.
+// Two timers are used, one to drive the inverter and a second to send data to the wifi module
 Metro inverter_timer = Metro(2);
-Metro debug_timer    = Metro(1000);
+Metro wifi_timer     = Metro(20);
 
 // There numbers don't mhave any special meaning, they're just labels for convenience.
 #define REVERSE 1
@@ -61,8 +61,7 @@ Metro debug_timer    = Metro(1000);
 
 // Tuneable settings
 #define CONFIG_VERSION 1
-struct
-{
+struct {
   uint16_t version;
   uint16_t precharge_voltage;
   uint16_t max_torque_fwd;
@@ -186,10 +185,10 @@ void setup() {
   pinMode(TransPB3, INPUT);
 
   // Oil pump speed
-  AnalogOut(OilPumpPWM, 180);        // Hardcoded to 70% for now
+  analogWrite(OilPumpPWM, 180);        // Hardcoded to 70% for now
 
   Serial1.begin(250000);
-  Serial2.begin(19200); // Wifi Module
+  Serial2.begin(115200); // Wifi Module
   SerialUSB.begin(115200);
 
   // I don't know what these magic constants do, but I assume
@@ -324,6 +323,7 @@ void print_menu() {
   SerialUSB.println(" p - Set exponential throttle curve");
   SerialUSB.println(" v - Set precharge voltage");
   SerialUSB.println(" z - Save configuration data to EEPROM memory");
+  SerialUSB.println(" ENABLE - This command must be issued before changes will be allowed");
   SerialUSB.println("********************************************");
 }
 
@@ -371,8 +371,84 @@ void print_status() {
   SerialUSB.println(analogRead(MG2Temp));
 }
 
-char rx_buffer[16];
-uint8_t rx_buffer_offset = 0;
+uint8_t config_allowed = 0;
+
+void process_serial(char* buffer) {
+  switch(buffer[0]) {
+    case 0: // If nothing received, print the menu just in case
+    case '?':
+      print_menu();
+      break;
+    case 'q':
+      print_status();
+      break;
+    case 'w':
+      print_config();
+      break;
+    case 'e':
+      if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
+      config.pedal_min = analogRead(Throt1Pin) + 10;
+      SerialUSB.println("Throttle low position calibrated.");
+      break;
+    case 'r':
+      if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
+      config.pedal_max = analogRead(Throt1Pin);
+      SerialUSB.println("Throttle high position calibrated.");
+      break;
+    case 't':
+      if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
+      config.max_torque_fwd = atoi(buffer+1);
+      SerialUSB.println("Max forward torque set.");
+      break;
+    case 'y':
+      if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
+      config.max_torque_rev = atoi(buffer+1);
+      SerialUSB.println("Max reverse torque set.");
+      break;
+    case 'u':
+      if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
+      config.regen_factor = atoi(buffer+1);
+      SerialUSB.println("Regen factor set.");
+      break;
+    case 'i':
+      if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
+      config.regen_limit = atoi(buffer+1);
+      SerialUSB.println("Regen limit set.");
+      break;
+    case 'o':
+      if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
+      config.throttle_exp = 0;
+      SerialUSB.println("Throttle curve set to regular.");
+      break;
+    case 'p':
+      if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
+      config.throttle_exp = 1;
+      SerialUSB.println("Throttle curve set to exponential.");
+      break;
+    case 'v':
+      if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
+      config.precharge_voltage = atoi(buffer+1);
+      SerialUSB.println("Precharge voltage set.");
+      break;
+    case 'z':
+      if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
+      EEPROM.write(0, config);
+      SerialUSB.println("Configuration saved.");
+      break;
+    case 'E':
+      if(!memcmp("ENABLE", buffer, 6)) {
+        config_allowed = 1;
+        SerialUSB.println("Configuration changes enabled.");
+      }
+      break;
+  }
+  memset(buffer, 0, 16);
+}
+
+char rx_buffer_usb[16];
+char rx_buffer_wifi[16];
+uint8_t rx_buffer_offset_usb  = 0;
+uint8_t rx_buffer_offset_wifi = 0;
 
 void read_serial() {
   uint8_t rx_byte;
@@ -380,64 +456,24 @@ void read_serial() {
     rx_byte = SerialUSB.read();
     if(rx_byte == 0x0a) {
       // Received a newline, process the buffer
-      switch(rx_buffer[0]) {
-        case 0: // If nothing received, print the menu just in case
-        case '?':
-          print_menu();
-          break;
-        case 'q':
-          print_status();
-          break;
-        case 'w':
-          print_config();
-          break;
-        case 'e':
-          config.pedal_min = analogRead(Throt1Pin) + 10;
-          SerialUSB.println("Throttle low position calibrated.");
-          break;
-        case 'r':
-          config.pedal_max = analogRead(Throt1Pin);
-          SerialUSB.println("Throttle high position calibrated.");
-          break;
-        case 't':
-          config.max_torque_fwd = atoi(rx_buffer+1);
-          SerialUSB.println("Max forward torque set.");
-          break;
-        case 'y':
-          config.max_torque_rev = atoi(rx_buffer+1);
-          SerialUSB.println("Max reverse torque set.");
-          break;
-        case 'u':
-          config.regen_factor = atoi(rx_buffer+1);
-          SerialUSB.println("Regen factor set.");
-          break;
-        case 'i':
-          config.regen_limit = atoi(rx_buffer+1);
-          SerialUSB.println("Regen limit set.");
-          break;
-        case 'o':
-          config.throttle_exp = 0;
-          SerialUSB.println("Throttle curve set to regular.");
-          break;
-        case 'p':
-          config.throttle_exp = 1;
-          SerialUSB.println("Throttle curve set to exponential.");
-          break;
-        case 'v':
-          config.precharge_voltage = atoi(rx_buffer+1);
-          SerialUSB.println("Precharge voltage set.");
-          break;
-        case 'z':
-          EEPROM.write(0, config);
-          SerialUSB.println("Configuration saved.");
-          break;
-      }
-      memset(rx_buffer, 0, 16);
-      rx_buffer_offset = 0;
+      process_serial(rx_buffer_usb);
+      rx_buffer_offset_usb = 0;
     } else {
       // Received a non-newline, append it to the buffer
-      if(rx_buffer_offset < 16)
-        rx_buffer[rx_buffer_offset++] = rx_byte;
+      if(rx_buffer_offset_usb < 16)
+        rx_buffer_usb[rx_buffer_offset_usb++] = rx_byte;
+    }
+  }
+  while(Serial2.available()) {
+    rx_byte = Serial2.read();
+    if(rx_byte == 0x0a) {
+      // Received a newline, process the buffer
+      process_serial(rx_buffer_wifi);
+      rx_buffer_offset_wifi = 0;
+    } else {
+      // Received a non-newline, append it to the buffer
+      if(rx_buffer_offset_wifi < 16)
+        rx_buffer_wifi[rx_buffer_offset_wifi++] = rx_byte;
     }
   }
 }
@@ -457,6 +493,51 @@ void shift_gear() {
   }
 }
 
+uint8_t wifi_index;
+void write_wifi() {
+  if(wifi_timer.check()) {
+    switch(wifi_index) {
+    case 0:
+      Serial2.print("b");
+      Serial2.println(dc_bus_voltage);
+    case 1:
+      Serial2.print("m");
+      Serial2.println(mg1_speed);
+    case 2:
+      Serial2.print("n");
+      Serial2.println(mg2_speed);
+    case 3:
+      Serial2.print("g");
+      Serial2.println(temp_inv_water);
+    case 4:
+      Serial2.print("e");
+      Serial2.println(config.pedal_min);
+    case 5:
+      Serial2.print("r");
+      Serial2.println(config.pedal_max);
+    case 6:
+      Serial2.print("t");
+      Serial2.println(config.max_torque_fwd);
+    case 7:
+      Serial2.print("y");
+      Serial2.println(config.max_torque_rev);
+    case 8:
+      Serial2.print("u");
+      Serial2.println(config.regen_factor);
+    case 9:
+      Serial2.print("i");
+      Serial2.println(config.regen_limit);
+    case 10:
+      Serial2.print("o");
+      Serial2.println(config.throttle_exp);
+    case 11:
+      Serial2.print("v");
+      Serial2.println(config.precharge_voltage);
+    }
+    wifi_index = (wifi_index + 1) % 12;
+  }
+}
+
 void loop() {
   // If we're not precharged yet, prepare to close contactor.
   if(!precharge_complete) precharge();
@@ -464,4 +545,5 @@ void loop() {
   monitor_inverter();
 
   read_serial();
+  write_wifi();
 }
