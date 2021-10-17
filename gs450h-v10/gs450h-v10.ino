@@ -140,8 +140,9 @@ uint16_t get_torque(uint8_t gear)
       torque = 0;
     } else if(in_progress_time < 400) {
       // The next 200ms is dedicated to engaging the gears
-      digitalWrite(TransSL1, !ratio_current);
-      digitalWrite(TransSL2, !ratio_current);
+      // This is EXTREMELY speculative and untested
+      digitalWrite(TransSL1, ratio_current);  // If we were previously in high ratio (0), We now disengage SL1
+      digitalWrite(TransSL2, !ratio_current); // If we were previously in high ratio (0), We now engage SL2
       torque = 0;
     } else if(in_progress_time < 650) {
       // During the final 250ms, torque is gradually increased back to full
@@ -171,8 +172,8 @@ void setup() {
   digitalWrite(InvPower, HIGH);      // Turn on inverter
   digitalWrite(OilPumpPower, HIGH);  // Begin HV precharge
   digitalWrite(Out1, LOW);           // Turn off main contactor
-  digitalWrite(TransSL1, LOW);       // Turn off at startup, not used yet.
-  digitalWrite(TransSL2, LOW);       // Turn off at startup, not used yet.
+  digitalWrite(TransSL1, HIGH);      // Turn on at startup. This is a guess at how to enable high ratio by default.
+  digitalWrite(TransSL2, LOW);       // Turn off at startup. This is a guess at how to enable high ratio by default.
   digitalWrite(TransSP, LOW);        // Turn off at startup, not used yet.
 
   // Set up INPUT pins
@@ -487,7 +488,7 @@ void shift_gear() {
     ratio_change_started = millis();
   } else {
     // It's only safe to switch to low ratio at low rpm
-    if(mg2_speed < -3500 || mg1_speed > 3500) return;
+    if(mg1_speed < -4000 || mg1_speed > 4000) return;
     ratio_state = 1;
     ratio_change_started = millis();
   }
