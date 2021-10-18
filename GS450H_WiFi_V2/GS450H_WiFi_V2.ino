@@ -11,8 +11,8 @@
 AsyncWebServer server(80);
 
 struct {
-  uint16_t voltage;
-  uint16_t water_temp;
+  int16_t voltage;
+  int16_t water_temp;
   int16_t mg1_speed;
   int16_t mg2_speed;
 } status;
@@ -65,13 +65,19 @@ void setup() {
     request->send(SPIFFS, "/config.js", "text/javascript");
   });
   server.on("/highcharts.js", HTTP_GET, [](AsyncWebServerRequest * request) {
-    request->send(SPIFFS, "/highcharts.js", "text/javascript");
+  AsyncWebServerResponse *response = request->beginResponse(SPIFFS, "/highcharts.js.gz", "text/javascript");
+  response->addHeader("Content-Encoding", "gzip");
+    request->send(response);
   });
   server.on("/highcharts-more.js", HTTP_GET, [](AsyncWebServerRequest * request) {
-    request->send(SPIFFS, "/highcharts-more.js", "text/javascript");
+  AsyncWebServerResponse *response = request->beginResponse(SPIFFS, "/highcharts-more.js.gz", "text/javascript");
+  response->addHeader("Content-Encoding", "gzip");
+    request->send(response);
   });
   server.on("/solid-gauge.js", HTTP_GET, [](AsyncWebServerRequest * request) {
-    request->send(SPIFFS, "/solid-gauge.js", "text/javascript");
+  AsyncWebServerResponse *response = request->beginResponse(SPIFFS, "/solid-gauge.js.gz", "text/javascript");
+  response->addHeader("Content-Encoding", "gzip");
+    request->send(response);
   });
   server.on("/data.json", HTTP_GET, [](AsyncWebServerRequest * request) {
     sprintf(json_data, "{\"voltage\":%i, \"mg1_speed\":%i, \"mg2_speed\":%i, \"water_temp\":%i}", status.voltage, status.mg1_speed, status.mg2_speed, status.water_temp);

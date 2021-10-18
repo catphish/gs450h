@@ -88,7 +88,7 @@ uint8_t htm_data_setup[80]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,
 uint8_t htm_data[80]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,255,0,0,0,0,0,0,0,0,0}; 
 
 // Only used for diagnostic output
-uint16_t dc_bus_voltage=0,temp_inv_water=0,temp_inv_inductor=0;
+int16_t dc_bus_voltage=0,temp_inv_water=0,temp_inv_inductor=0;
 
 // Useful to have these globally available
 int16_t mg1_torque = 0;
@@ -128,8 +128,8 @@ uint16_t get_torque(uint8_t gear)
   // Map throttle pedal curve so that minimum is full regen and max is full torque
   uint16_t torque;
   if(gear==DRIVE)   torque = map(throttle, 0, 1000, regen,  config.max_torque_fwd);
-  if(gear==REVERSE) torque = map(throttle, 0, 1000, regen, -config.max_torque_rev);
-  torque = 0;  // If we're not in FWD or REV default to no torque.
+  else if(gear==REVERSE) torque = map(throttle, 0, 1000, regen, -config.max_torque_rev);
+  else torque = 0;  // If we're not in FWD or REV default to no torque.
 
   // If a gear shift is in progress, additional shenanigans are in order
   // here to ensure parts of the transmission dont end up in the road.
@@ -172,7 +172,7 @@ void setup() {
   digitalWrite(InvPower, HIGH);      // Turn on inverter
   digitalWrite(OilPumpPower, HIGH);  // Begin HV precharge
   digitalWrite(Out1, LOW);           // Turn off main contactor
-  digitalWrite(TransSL1, HIGH);      // Turn on at startup. This is a guess at how to enable high ratio by default.
+  digitalWrite(TransSL1, LOW );      // Turn off at startup. This is a guess at how to enable high ratio by default.
   digitalWrite(TransSL2, LOW);       // Turn off at startup. This is a guess at how to enable high ratio by default.
   digitalWrite(TransSP, LOW);        // Turn off at startup, not used yet.
 
@@ -223,7 +223,8 @@ void setup() {
 
 // Close the main contactor once inverter DC bus voltage reaches defined value.
 void precharge() {
-    if (dc_bus_voltage > config.precharge_voltage) {
+    if (inv_initialized && (dc_bus_voltage > config.precharge_voltage)) {
+        delay(500);
         digitalWrite(Out1,HIGH);
         precharge_complete = 1;
     }
