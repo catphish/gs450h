@@ -12,13 +12,12 @@ o - throttle curve (n)
 p - throttle curve (e)
 v - precharge voltage
 a - oil pump speed
-s - gear solenoids
 z - Save configuration data to EEPROM
 
 b - bus voltage
 m - mg1 speed
 n - mg2 speed
-g - inverter water temp
+c - inverter water temp
 h - mg1 temp
 j - mg2 temp
 k - oil pump temp

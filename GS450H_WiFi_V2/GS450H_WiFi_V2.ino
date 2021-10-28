@@ -15,6 +15,14 @@ struct {
   int16_t water_temp;
   int16_t mg1_speed;
   int16_t mg2_speed;
+  uint16_t mg1_temp;
+  uint16_t mg2_temp;
+  uint16_t pump_temp;
+  uint16_t trans_temp;
+  uint16_t trans_sl;
+  uint16_t trans_pb1;
+  uint16_t trans_pb2;
+  uint16_t trans_pb3;
 } status;
 
 struct {
@@ -26,6 +34,7 @@ struct {
   uint16_t regen_factor;
   uint16_t regen_limit;
   uint16_t throttle_exp;
+  uint16_t oil_pump_pwm;
 } config;
 
 char json_data[512];
@@ -80,11 +89,38 @@ void setup() {
     request->send(response);
   });
   server.on("/data.json", HTTP_GET, [](AsyncWebServerRequest * request) {
-    sprintf(json_data, "{\"voltage\":%i, \"mg1_speed\":%i, \"mg2_speed\":%i, \"water_temp\":%i}", status.voltage, status.mg1_speed, status.mg2_speed, status.water_temp);
-    request->send(200, "application/json", json_data);
-  });
-  server.on("/config.json", HTTP_GET, [](AsyncWebServerRequest * request) {
-    sprintf(json_data, "{\"pedal_min\":%i, \"pedal_max\":%i, \"max_torque_fwd\":%i, \"max_torque_rev\":%i, \"regen_factor\":%i, \"regen_limit\":%i, \"throttle_exp\":%i, \"precharge_voltage\":%i}", config.pedal_min, config.pedal_max, config.max_torque_fwd, config.max_torque_rev, config.regen_factor, config.regen_limit, config.throttle_exp, config.precharge_voltage);
+    sprintf(json_data, "{\"pedal_min\":%i,"
+                        "\"pedal_max\":%i,"
+                        "\"max_torque_fwd\":%i,"
+                        "\"max_torque_rev\":%i,"
+                        "\"regen_factor\":%i,"
+                        "\"regen_limit\":%i,"
+                        "\"throttle_exp\":%i,"
+                        "\"precharge_voltage\":%i,"
+                        "\"oil_pump_pwm\":%i,"
+                        "\"voltage\":%i,"
+                        "\"water_temp\":%i,"
+                        "\"mg1_speed\":%i,"
+                        "\"mg2_speed\":%i,"
+                        "\"mg1_temp\":%i,"
+                        "\"mg2_temp\":%i,"
+                        "\"pump_temp\":%i,"
+                        "\"trans_temp\":%i,"
+                        "\"trans_sl\":%i,"
+                        "\"trans_pb1\":%i,"
+                        "\"trans_pb2\":%i,"
+                        "\"trans_pb3\":%i}",
+                        config.pedal_min, config.pedal_max,
+                        config.max_torque_fwd, config.max_torque_rev,
+                        config.regen_factor, config.regen_limit,
+                        config.throttle_exp, config.precharge_voltage,
+                        config.oil_pump_pwm,
+                        status.voltage, status.water_temp,
+                        status.mg1_speed, status.mg2_speed,
+                        status.mg1_temp, status.mg2_temp,
+                        status.pump_temp, status.trans_temp,
+                        status.trans_sl, status.trans_pb1,
+                        status.trans_pb2, status.trans_pb3);
     request->send(200, "application/json", json_data);
   });
 
@@ -95,18 +131,6 @@ void setup() {
 
 void process_serial(char* buffer) {
   switch(buffer[0]) {
-  case 'b':
-    status.voltage = atoi(buffer+1);
-    break;
-  case 'm':
-    status.mg1_speed = atoi(buffer+1);
-    break;
-  case 'n':
-    status.mg2_speed = atoi(buffer+1);
-    break;
-  case 'g':
-    status.water_temp = atoi(buffer+1);
-    break;
   case 'e':
     config.pedal_min = atoi(buffer+1);
     break;
@@ -130,6 +154,45 @@ void process_serial(char* buffer) {
     break;
   case 'v':
     config.precharge_voltage = atoi(buffer+1);
+    break;
+  case 'a':
+    config.oil_pump_pwm = atoi(buffer+1);
+    break;
+  case 's':
+    status.trans_sl = atoi(buffer+1);
+    break;
+  case 'b':
+    status.voltage = atoi(buffer+1);
+    break;
+  case 'm':
+    status.mg1_speed = atoi(buffer+1);
+    break;
+  case 'n':
+    status.mg2_speed = atoi(buffer+1);
+    break;
+  case 'c':
+    status.water_temp = atoi(buffer+1);
+    break;
+  case 'h':
+    status.mg1_temp = atoi(buffer+1);
+    break;
+  case 'j':
+    status.mg2_temp = atoi(buffer+1);
+    break;
+  case 'k':
+    status.pump_temp = atoi(buffer+1);
+    break;
+  case 'l':
+    status.trans_temp = atoi(buffer+1);
+    break;
+  case 'd':
+    status.trans_pb1 = atoi(buffer+1);
+    break;
+  case 'f':
+    status.trans_pb2 = atoi(buffer+1);
+    break;
+  case 'g':
+    status.trans_pb3 = atoi(buffer+1);
     break;
   }
   memset(buffer, 0, 16);

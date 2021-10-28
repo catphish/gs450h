@@ -539,7 +539,7 @@ void write_wifi() {
       Serial2.println(mg2_speed);
       break;
     case 12:
-      Serial2.print("g");
+      Serial2.print("c");
       Serial2.println(temp_inv_water);
       break;
     case 13:
