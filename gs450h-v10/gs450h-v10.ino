@@ -6,9 +6,7 @@
  * V5  - WiFi connection on USART2 at 19200 baud
  * V6  - add ISA CAN shunt connectivity. Note V2 hardware only. 
  * V7  - add HV precharge and control- oil pump relay=midpack and precharge contactor, out1= main contactor.
- * V8  - stripped down rewrite by CS. basic functionality.
- * V9  - add serial control for settings (CS)
- * V10 - add wifi commectivity, control of oil pressure and solenoids
+ * V10  - stripped down rewrite by CS. Complete basic functionality and basic web interface.
  * 
  * Copyright 2019 T.Darby , D.Maguire, C.Smurthwaite
  * openinverter.org
@@ -174,8 +172,7 @@ void setup() {
 
   Serial1.begin(250000);
   Serial2.begin(115200); // Wifi Module
-  SerialUSB.begin(115200);
-
+  
   // I don't know what these magic constants do, but I assume
   // they are necessary for the sync serial port to work.
   PIOA->PIO_ABSR |= 1<<17;
@@ -282,196 +279,57 @@ uint8_t monitor_inverter() {
   return(0);
 }
 
-void print_menu() {
-  SerialUSB.println("");
-  SerialUSB.println("************ Available Commands ************");
-  SerialUSB.println(" ? - Print this menu");
-  SerialUSB.println(" q - Print inverter status");
-  SerialUSB.println(" w - Print configuration data");
-  SerialUSB.println(" e - Calibrate minimum throttle.");
-  SerialUSB.println(" r - Calibrate maximum throttle.");
-  SerialUSB.println(" t - Set max forward torque (0-3500)");
-  SerialUSB.println(" y - Set max reverse torque (0-3500)");
-  SerialUSB.println(" u - Set regen factor (0-100+)");
-  SerialUSB.println(" i - Set max regen (0-3500)");
-  SerialUSB.println(" o - Set normal throttle curve");
-  SerialUSB.println(" p - Set exponential throttle curve");
-  SerialUSB.println(" v - Set precharge voltage");
-  SerialUSB.println(" a - Set oil pump pwm (0-255)");
-  SerialUSB.println(" s - Set gear solenoids (0-3)");
-  SerialUSB.println(" z - Save configuration data to EEPROM memory");
-  SerialUSB.println(" ENABLE - This command must be issued before changes will be allowed");
-  SerialUSB.println("********************************************");
-}
-
-void print_config() {
-  SerialUSB.println("");
-  SerialUSB.println("Configuration");
-  SerialUSB.println("=============");
-  SerialUSB.print("Precharge:      ");
-  SerialUSB.println(config.precharge_voltage);
-  SerialUSB.print("Max Torque FWD: ");
-  SerialUSB.println(config.max_torque_fwd);
-  SerialUSB.print("Max Torque REV: ");
-  SerialUSB.println(config.max_torque_rev);
-  SerialUSB.print("Pedal min:      ");
-  SerialUSB.println(config.pedal_min);
-  SerialUSB.print("Pedal max:      ");
-  SerialUSB.println(config.pedal_max);
-  SerialUSB.print("Regen factor:   ");
-  SerialUSB.println(config.regen_factor);
-  SerialUSB.print("Regen limit:    ");
-  SerialUSB.println(config.regen_limit);
-  SerialUSB.print("Exp Throttle    ");
-  SerialUSB.println(config.throttle_exp);
-  SerialUSB.print("Oil Pump PWM:   ");
-  SerialUSB.println(config.oil_pump_pwm);
-}
-
-void print_status() {
-  SerialUSB.println("");
-  SerialUSB.println("Status");
-  SerialUSB.println("======");
-  SerialUSB.print("DC Bus:            ");
-  SerialUSB.println(dc_bus_voltage);
-  SerialUSB.print("Throttle Pos:      ");
-  SerialUSB.println(analogRead(Throt1Pin));
-  SerialUSB.print("MG1 Speed:         ");
-  SerialUSB.println(mg1_speed);
-  SerialUSB.print("MG2 Speed:         ");
-  SerialUSB.println(mg2_speed);
-  SerialUSB.print("Trans SL1:         ");
-  SerialUSB.println(trans_sl1);
-  SerialUSB.print("Trans SL2:         ");
-  SerialUSB.println(trans_sl1);
-  SerialUSB.print("Water Temp:        ");
-  SerialUSB.println(temp_inv_water);
-  SerialUSB.print("Inductor Temp:     ");
-  SerialUSB.println(temp_inv_inductor);
-  SerialUSB.print("Raw MG1 Temp:      ");
-  SerialUSB.println(analogRead(MG1Temp));
-  SerialUSB.print("Raw MG2 Temp:      ");
-  SerialUSB.println(analogRead(MG2Temp));
-  SerialUSB.print("Raw Oil Pump Temp: ");
-  SerialUSB.println(analogRead(OilpumpTemp));
-  SerialUSB.print("Raw Trans Temp:    ");
-  SerialUSB.println(analogRead(TransTemp));
-  SerialUSB.print("Trans Solenoid 1:  ");
-  SerialUSB.println(trans_sl1);
-  SerialUSB.print("Trans Solenoid 2:  ");
-  SerialUSB.println(trans_sl2);
-  SerialUSB.print("Oil Pressure 1:    ");
-  SerialUSB.println(analogRead(digitalRead(TransPB1)));
-  SerialUSB.print("Oil Pressure 2:    ");
-  SerialUSB.println(analogRead(digitalRead(TransPB2)));
-  SerialUSB.print("Oil Pressure 3:    ");
-  SerialUSB.println(analogRead(digitalRead(TransPB3)));
-}
-
 uint8_t config_allowed = 0;
 
+// Lines must begin with \t and end with \n
+// Following the \t the first 2 bytes are an ascii number, specifying the parameter / command
 void process_serial(char* buffer) {
-  switch(buffer[0]) {
-    case 0: // If nothing received, print the menu just in case
-    case '?':
-      print_menu();
-      break;
-    case 'q':
-      print_status();
-      break;
-    case 'w':
-      print_config();
-      break;
-    case 'e':
-      if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
-      config.pedal_min = analogRead(Throt1Pin) + 10;
-      SerialUSB.println("Throttle low position calibrated.");
-      break;
-    case 'r':
-      if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
-      config.pedal_max = analogRead(Throt1Pin);
-      SerialUSB.println("Throttle high position calibrated.");
-      break;
-    case 't':
-      if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
-      config.max_torque_fwd = atoi(buffer+1);
-      SerialUSB.println("Max forward torque set.");
-      break;
-    case 'y':
-      if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
-      config.max_torque_rev = atoi(buffer+1);
-      SerialUSB.println("Max reverse torque set.");
-      break;
-    case 'u':
-      if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
-      config.regen_factor = atoi(buffer+1);
-      SerialUSB.println("Regen factor set.");
-      break;
-    case 'i':
-      if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
-      config.regen_limit = atoi(buffer+1);
-      SerialUSB.println("Regen limit set.");
-      break;
-    case 'o':
-      if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
-      config.throttle_exp = 0;
-      SerialUSB.println("Throttle curve set to regular.");
-      break;
-    case 'p':
-      if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
-      config.throttle_exp = 1;
-      SerialUSB.println("Throttle curve set to exponential.");
-      break;
-    case 'v':
-      if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
-      config.precharge_voltage = atoi(buffer+1);
-      SerialUSB.println("Precharge voltage set.");
-      break;
-    case 'a':
-      if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
-      config.oil_pump_pwm = atoi(buffer+1);
-      SerialUSB.println("Oil pump speed set.");
-      break;
-    case 's':
-      if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
-      trans_sl1 = (atoi(buffer+1) >> 0) & 1;
-      trans_sl2 = (atoi(buffer+1) >> 1) & 1;
-      SerialUSB.println("Transmission solenoids set.");
-      break;
-    case 'z':
-      if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
-      EEPROM.write(0, config);
-      SerialUSB.println("Configuration saved.");
-      break;
-    case 'E':
-      if(!memcmp("ENABLE", buffer, 6)) {
-        config_allowed = 1;
-        SerialUSB.println("Configuration changes enabled.");
-      }
-      break;
+  if(buffer[0] == '\t' && buffer[1] == '2' && buffer[2] == '0') {
+    EEPROM.write(0, config);
   }
-  memset(buffer, 0, 16);
+  if(buffer[0] == '\t' && buffer[1] == '0') {
+    switch(buffer[2]) {
+    case '0':
+      config.pedal_min = atoi(buffer+4);
+      break;
+    case '1':
+      config.pedal_max = atoi(buffer+4);
+      break;
+    case '2':
+      config.max_torque_fwd = atoi(buffer+4);
+      break;
+    case '3':
+      config.max_torque_rev = atoi(buffer+4);
+      break;
+    case '4':
+      config.regen_factor = atoi(buffer+4);
+      break;
+    case '5':
+      config.regen_limit = atoi(buffer+4);
+      break;
+    case '6':
+      config.throttle_exp = atoi(buffer+4);
+      break;
+    case '7':
+      config.precharge_voltage = atoi(buffer+4);
+      break;
+    case '8':
+      config.oil_pump_pwm = atoi(buffer+4);
+      break;
+    case '9':
+      trans_sl1 = (atoi(buffer+4) << 0) & 1;
+      trans_sl2 = (atoi(buffer+4) << 1) & 1;
+      break;
+    }    
+  }
+  memset(buffer, 0, 32);
 }
 
-char rx_buffer_usb[16];
-char rx_buffer_wifi[16];
-uint8_t rx_buffer_offset_usb  = 0;
+char rx_buffer_wifi[32];
 uint8_t rx_buffer_offset_wifi = 0;
 
 void read_serial() {
   uint8_t rx_byte;
-  while(SerialUSB.available()) {
-    rx_byte = SerialUSB.read();
-    if(rx_byte == 0x0a) {
-      // Received a newline, process the buffer
-      process_serial(rx_buffer_usb);
-      rx_buffer_offset_usb = 0;
-    } else {
-      // Received a non-newline, append it to the buffer
-      if(rx_buffer_offset_usb < 16)
-        rx_buffer_usb[rx_buffer_offset_usb++] = rx_byte;
-    }
-  }
   while(Serial2.available()) {
     rx_byte = Serial2.read();
     if(rx_byte == 0x0a) {
@@ -480,102 +338,111 @@ void read_serial() {
       rx_buffer_offset_wifi = 0;
     } else {
       // Received a non-newline, append it to the buffer
-      if(rx_buffer_offset_wifi < 16)
+      if(rx_buffer_offset_wifi < 32)
         rx_buffer_wifi[rx_buffer_offset_wifi++] = rx_byte;
     }
   }
 }
 
+// Send parameters to wifi on a loop. HTTP page will be  dynamically generated accordingly.
+// All lines begin with \t followed by 2-digit ID, comma, type (1=RW,2=RO), comma, descripton, comma, value (integer).
 uint8_t wifi_index;
 void write_wifi() {
   if(wifi_timer.check()) {
+    Serial2.print("\t");
     switch(wifi_index) {
-    case 0: // Config first
-      Serial2.print("e");
+    case 0: // Config and read-write parameters
+      Serial2.print("00,1,Pedal Min,");
       Serial2.println(config.pedal_min);
       break;
     case 1:
-      Serial2.print("r");
+      Serial2.print("01,1,Pedal Max,");
       Serial2.println(config.pedal_max);
       break;
     case 2:
-      Serial2.print("t");
+      Serial2.print("02,1,Max Torque Fwd,");
       Serial2.println(config.max_torque_fwd);
       break;
     case 3:
-      Serial2.print("y");
+      Serial2.print("03,1,Max Torque Rev,");
       Serial2.println(config.max_torque_rev);
       break;
     case 4:
-      Serial2.print("u");
+      Serial2.print("04,1,Regen Factor,");
       Serial2.println(config.regen_factor);
       break;
     case 5:
-      Serial2.print("i");
+      Serial2.print("05,1,Regen Limit,");
       Serial2.println(config.regen_limit);
       break;
     case 6:
-      Serial2.print("o");
+      Serial2.print("06,1,Throttle Mode,");
       Serial2.println(config.throttle_exp);
       break;
     case 7:
-      Serial2.print("v");
+      Serial2.print("07,1,Precharge Volage,");
       Serial2.println(config.precharge_voltage);
       break;
     case 8:
-      Serial2.print("a");
+      Serial2.print("08,1,Oil Pump PWM,");
       Serial2.println(config.oil_pump_pwm);
       break;
-    case 9: // Status follows
-      Serial2.print("b");
-      Serial2.println(dc_bus_voltage);
-      break;
-    case 10:
-      Serial2.print("m");
-      Serial2.println(mg1_speed);
-      break;
-    case 11:
-      Serial2.print("n");
-      Serial2.println(mg2_speed);
-      break;
-    case 12:
-      Serial2.print("c");
-      Serial2.println(temp_inv_water);
-      break;
-    case 13:
-      Serial2.print("h");
-      Serial2.println(analogRead(MG1Temp));
-      break;
-    case 14:
-      Serial2.print("j");
-      Serial2.println(analogRead(MG2Temp));
-      break;
-    case 15:
-      Serial2.print("k");
-      Serial2.println(analogRead(OilpumpTemp));
-      break;
-    case 16:
-      Serial2.print("l");
-      Serial2.println(analogRead(TransTemp));
-      break;
-    case 17:
-      Serial2.print("s");
+    case 9:
+      Serial2.print("09,1,Solenoid State,");
       Serial2.println((trans_sl2 << 1) | trans_sl1);
       break;
+    case 10: // Read-only status parameters
+      Serial2.print("10,2,DC Bus Voltage,");
+      Serial2.println(dc_bus_voltage);
+      break;
+    case 11:
+      Serial2.print("11,2,MG1 Speed,");
+      Serial2.println(mg1_speed);
+      break;
+    case 12:
+      Serial2.print("12,2,MG2 Speed,");
+      Serial2.println(mg2_speed);
+      break;
+    case 13:
+      Serial2.print("13,2,Inverter Water Temp,");
+      Serial2.println(temp_inv_water);
+      break;
+    case 14:
+      Serial2.print("14,2,MG1 Temp,");
+      Serial2.println(analogRead(MG1Temp));
+      break;
+    case 15:
+      Serial2.print("15,2,MG2 Temp,");
+      Serial2.println(analogRead(MG2Temp));
+      break;
+    case 16:
+      Serial2.print("16,2,Oil Pump Temp,");
+      Serial2.println(analogRead(OilpumpTemp));
+      break;
+    case 17:
+      Serial2.print("17,2,Transmission Temp,");
+      Serial2.println(analogRead(TransTemp));
+      break;
     case 18:
-      Serial2.print("d");
+      Serial2.print("18,2,Oil Pressure State,");
+      Serial2.print(digitalRead(TransPB1));
+      Serial2.print(" ");
+      Serial2.print(digitalRead(TransPB1));
+      Serial2.print(" ");
       Serial2.println(digitalRead(TransPB1));
       break;
     case 19:
-      Serial2.print("f");
-      Serial2.println(digitalRead(TransPB2));
+      Serial2.print("19,2,Pedal Position,");
+      Serial2.println(analogRead(Throt1Pin));
       break;
     case 20:
-      Serial2.print("g");
-      Serial2.println(digitalRead(TransPB3));
+      Serial2.println("20,1,Save to EEPROM,SAVE");
+      break;
+    case 21:
+      Serial2.println("21,0,,");
       break;
     }
-    wifi_index = (wifi_index + 1) % 21;
+    wifi_index = (wifi_index + 1) % 22;
   }
 }
 
