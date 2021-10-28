@@ -286,6 +286,8 @@ uint8_t config_allowed = 0;
 void process_serial(char* buffer) {
   if(buffer[0] == '\t' && buffer[1] == '2' && buffer[2] == '0') {
     EEPROM.write(0, config);
+  } else if(buffer[0] == '\t' && buffer[1] == '2' && buffer[2] == '1') {
+    EEPROM.read(0, config);
   }
   if(buffer[0] == '\t' && buffer[1] == '0') {
     switch(buffer[2]) {
@@ -318,7 +320,7 @@ void process_serial(char* buffer) {
       break;
     case '9':
       trans_sl1 = (atoi(buffer+4) << 0) & 1;
-      trans_sl2 = (atoi(buffer+4) << 1) & 1;
+      trans_sl2 = (atoi(buffer+4) >> 1) & 1;
       break;
     }    
   }
@@ -439,10 +441,13 @@ void write_wifi() {
       Serial2.println("20,1,Save to EEPROM,SAVE");
       break;
     case 21:
-      Serial2.println("21,0,,");
+      Serial2.println("21,1,Revert from EEPROM,LOAD");
+      break;
+    case 22:
+      Serial2.println("22,0,,");
       break;
     }
-    wifi_index = (wifi_index + 1) % 22;
+    wifi_index = (wifi_index + 1) % 23;
   }
 }
 
