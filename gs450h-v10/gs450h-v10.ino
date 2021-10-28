@@ -8,7 +8,7 @@
  * V7  - add HV precharge and control- oil pump relay=midpack and precharge contactor, out1= main contactor.
  * V8  - stripped down rewrite by CS. basic functionality.
  * V9  - add serial control for settings (CS)
- * V10 - add wifi commectivity, begin gear shifting (gear shifting incomplete) (CS)
+ * V10 - add wifi commectivity, control of oil pressure and solenoids
  * 
  * Copyright 2019 T.Darby , D.Maguire, C.Smurthwaite
  * openinverter.org
@@ -29,33 +29,34 @@ Metro wifi_timer     = Metro(20);
 #define DRIVE   3
 
 // Define pin mappings
-#define pin_inv_req  22 // Requests status data from inverter
+#define LED          13 // Just an LED
+#define InvReq       22 // Requests status data from inverter
 #define Out1         50 // This pin is used to close the main contactor
-#define OilPumpPWM    2 // Oil pump speed control, not yet implemented
+#define OilPumpPWM    2 // Oil pump speed control
 #define OilPumpPower 33 // This pin closes the negative and precharge contactors. Always on, could probably be put to better use.
 #define InvPower     34 // Powers up the inverter. Always on, could probably be put to better use.
 #define TransSL1     47 // Transmission Solenoid 1
 #define TransSL2     44 // Transmission Solenoid 2
-#define TransSP      45 // Please can someone explain to me what this is for? Not yet implemented.
+#define TransSP      45 // Oil pressure solenoid, we likely don't need to use this if we control the oil pump
 
 #define IN1          6  // High when gear level is in FWD position (D/B)
 #define IN2          7  // High when gear level is in REV position (R)
 #define Brake_In    62  // Not currently used. I will likely use for gear lever "B" position.
 
-#define TransPB1    40  // Oil pressure sensor? Not yet implemented.
-#define TransPB2    43  // Oil pressure sensor? Not yet implemented.
-#define TransPB3    42  // Oil pressure sensor? Not yet implemented.
+#define TransPB1    40  // Oil pressure sensor
+#define TransPB2    43  // Oil pressure sensor
+#define TransPB3    42  // Oil pressure sensor
 
 #define Throt1Pin   A0  // Throttle 1 input.
 #define Throt2Pin   A1  // Throttle 2 input. Not yet implemented.
 
-#define OilpumpTemp A7  // Oil pump temperature. Not yet implemented.
-#define TransTemp   A4  // Oil pump temperature. Not yet implemented.
-#define MG1Temp     A5  // Oil pump temperature. Not yet implemented.
-#define MG2Temp     A6  // Oil pump temperature. Not yet implemented.
+#define OilpumpTemp A7  // Temperature sensor
+#define TransTemp   A4  // Temperature sensor
+#define MG1Temp     A5  // Temperature sensor
+#define MG2Temp     A6  // Temperature sensor
 
 // Hard limits
-#define MG2MAXSPEED 10000
+#define MG1MAXSPEED 12000
 #define MAXCURRENT 27500
 #define MAXREGEN -5000
 
@@ -71,6 +72,7 @@ struct {
   uint16_t regen_factor;
   uint16_t regen_limit;
   uint16_t throttle_exp;
+  uint16_t oil_pump_pwm;
 } config;
 
 // Read IN1 and IN2 and decide whether we're in FWD, REV, or neutral
@@ -96,23 +98,19 @@ int16_t mg2_torque = 0;
 int16_t mg1_speed = 0;
 int16_t mg2_speed = 0;
 
+// Gear ratio solenoid states
+uint8_t trans_sl1 = 0;
+uint8_t trans_sl2 = 0;
+
 // This value switched to 1 when the inverter has been configured and is ready to use.
 uint8_t inv_initialized = 0;
 // This value switches to 1 then the main contactor closes.
 uint8_t precharge_complete = 0;
 
-// Current ratio, set when shifting completes
-#define RATIO_HIGH 0
-#define RATIO_LOW 1
-uint8_t ratio_current;
-// Is a shift currently in progress?
-uint8_t ratio_state;
-// If we're shifting, when did the process begin?
-uint32_t ratio_change_started;
-
 // Based on gear and throttle position, calculate desired torque.
-uint16_t get_torque(uint8_t gear)
+void calculate_torque()
 {
+  uint8_t gear = get_gear();
   // Normalize throttle 1 input to 0-1000
   int throttle = analogRead(Throt1Pin);
   throttle = map(throttle, config.pedal_min, config.pedal_max, 0, 1000);
@@ -121,45 +119,31 @@ uint16_t get_torque(uint8_t gear)
   // If enabled, create an exponential curve that gives more control of low speed / regen.
   if(config.throttle_exp) throttle = throttle * throttle / 1000;
 
-  // Calculate regen amount based on % of mg1 speed and maximum limit
-  int regen = mg1_speed * config.regen_factor / 100;
+  // Calculate regen amount based on % of mg2 speed and maximum limit
+  int regen = -mg2_speed * config.regen_factor / 100;
   regen = constrain(regen, -config.regen_limit, config.regen_limit);
 
   // Map throttle pedal curve so that minimum is full regen and max is full torque
   uint16_t torque;
-  if(gear==DRIVE)   torque = map(throttle, 0, 1000, regen,  config.max_torque_fwd);
+  if(gear==DRIVE)        torque = map(throttle, 0, 1000, regen,  config.max_torque_fwd);
   else if(gear==REVERSE) torque = map(throttle, 0, 1000, regen, -config.max_torque_rev);
-  else torque = 0;  // If we're not in FWD or REV default to no torque.
+  else                   torque = 0;  // If we're not in FWD or REV default to no torque.
 
-  // If a gear shift is in progress, additional shenanigans are in order
-  // here to ensure parts of the transmission dont end up in the road.
-  if(ratio_state) {
-    uint32_t in_progress_time = millis() - ratio_change_started;
-    if(in_progress_time < 200) {
-      // For the first 200ms we just reduce torque to zero
-      torque = 0;
-    } else if(in_progress_time < 400) {
-      // The next 200ms is dedicated to engaging the gears
-      // This is EXTREMELY speculative and untested
-      digitalWrite(TransSL1, ratio_current);  // If we were previously in high ratio (0), We now disengage SL1
-      digitalWrite(TransSL2, !ratio_current); // If we were previously in high ratio (0), We now engage SL2
-      torque = 0;
-    } else if(in_progress_time < 650) {
-      // During the final 250ms, torque is gradually increased back to full
-      torque = constrain(torque, (in_progress_time - 400) * -14, (in_progress_time - 400) * 14);
-    } else {
-      // Shifting complete
-      ratio_current = !ratio_current;
-      ratio_state = 0;
-    }
-  }
-  return(torque);
+  // Hard cut torque if MG1 is overspeed
+  if((mg1_speed>MG1MAXSPEED)||(-mg1_speed>MG1MAXSPEED)) torque=0;
+
+  // MG1 torque is set to MG2 * 1.25.
+  mg2_torque = torque;
+  mg1_torque=((torque*5)/4);
+
+  // We don't use mg1 in reverse.
+  if(gear==REVERSE)mg1_torque=0;
 }
 
 void setup() {
   // Set up OUTPUT pins
-  pinMode(13, OUTPUT);              // LED
-  pinMode(pin_inv_req, OUTPUT);
+  pinMode(LED, OUTPUT);
+  pinMode(InvReq, OUTPUT);
   pinMode(OilPumpPower, OUTPUT);
   pinMode(InvPower, OUTPUT);
   pinMode(Out1, OUTPUT);
@@ -168,12 +152,12 @@ void setup() {
   pinMode(TransSP, OUTPUT);
 
   // Set defalt pin states
-  digitalWrite(pin_inv_req, LOW);    // This initial state is unimportant
+  digitalWrite(InvReq, LOW);         // This initial state is unimportant
   digitalWrite(InvPower, HIGH);      // Turn on inverter
   digitalWrite(OilPumpPower, HIGH);  // Begin HV precharge
   digitalWrite(Out1, LOW);           // Turn off main contactor
-  digitalWrite(TransSL1, LOW );      // Turn off at startup. This is a guess at how to enable high ratio by default.
-  digitalWrite(TransSL2, LOW);       // Turn off at startup. This is a guess at how to enable high ratio by default.
+  digitalWrite(TransSL1, LOW);       // Turn off at startup.
+  digitalWrite(TransSL2, LOW);       // Turn off at startup.
   digitalWrite(TransSP, LOW);        // Turn off at startup, not used yet.
 
   // Set up INPUT pins
@@ -186,7 +170,7 @@ void setup() {
   pinMode(TransPB3, INPUT);
 
   // Oil pump speed
-  analogWrite(OilPumpPWM, 180);        // Hardcoded to 70% for now
+  analogWrite(OilPumpPWM, 0);
 
   Serial1.begin(250000);
   Serial2.begin(115200); // Wifi Module
@@ -217,6 +201,7 @@ void setup() {
     config.regen_factor = 0;
     config.regen_limit = 0;
     config.throttle_exp = 0;
+    config.oil_pump_pwm = 0;
     EEPROM.write(0, config);
   }
 }
@@ -232,22 +217,7 @@ void precharge() {
 
 // Send a control packet to the inverter to set the torque of MG1
 // and MG2 based on desired torque.
-void send_inverter_control() {
-  // We need to know if we're in FWD, REV or neutral
-  uint8_t gear=get_gear();
-  
-  // Call get_torque for main torque calculation
-  mg2_torque=get_torque(gear); // -3500 (reverse) to 3500 (forward)
-
-  // MG1 torque is set to MG2 * 1.25. Please can someone tell me where this ratio came from?
-  mg1_torque=((mg2_torque*5)/4);
-
-  // Hard cut torque for overspeed
-  if((mg2_speed>MG2MAXSPEED)||(mg2_speed<-MG2MAXSPEED))mg2_torque=0;
-
-  // We don't use mg1 in reverse. Why not?
-  if(gear==REVERSE)mg1_torque=0;
-  
+void control_inverter() {
   // Black magic from previous gurus. Thanks! I'd love some more info on these data structures.
   int speedSum = mg2_speed + mg1_speed;
   speedSum /= 113;
@@ -278,13 +248,16 @@ void send_inverter_control() {
   else Serial1.write(htm_data_setup, 80);
 }
 
-void monitor_inverter() {
-  // Every 2ms toggle request line to request inverter status
+// Every 2ms toggle request line to request inverter status
+void poll_inverter() {
   if(inverter_timer.check()) {
-    digitalWrite(pin_inv_req,!digitalRead(pin_inv_req));
+    digitalWrite(InvReq,!digitalRead(InvReq));
   }
+}
 
-  // Wait for 100 bytes of status data
+// Wait for 100 bytes of status data, when a frame has been received, parse it.
+// Return true when a frame has been received from the inverter.
+uint8_t monitor_inverter() {
   if(Serial1.available() >= 100) {
     Serial1.readBytes(mth_data, 100);
     // Discard any unexpected extra bytes to ensure we stay in sync
@@ -304,9 +277,9 @@ void monitor_inverter() {
       if(mth_data[1])
         inv_initialized = 1; // Inverter now initialized
     }
-    // Every time we receive a status frame, send a control frame.
-    send_inverter_control();
+    return(1);
   }
+  return(0);
 }
 
 void print_menu() {
@@ -324,6 +297,8 @@ void print_menu() {
   SerialUSB.println(" o - Set normal throttle curve");
   SerialUSB.println(" p - Set exponential throttle curve");
   SerialUSB.println(" v - Set precharge voltage");
+  SerialUSB.println(" a - Set oil pump pwm (0-255)");
+  SerialUSB.println(" s - Set gear solenoids (0-3)");
   SerialUSB.println(" z - Save configuration data to EEPROM memory");
   SerialUSB.println(" ENABLE - This command must be issued before changes will be allowed");
   SerialUSB.println("********************************************");
@@ -333,44 +308,64 @@ void print_config() {
   SerialUSB.println("");
   SerialUSB.println("Configuration");
   SerialUSB.println("=============");
-  SerialUSB.print("Precharge:     ");
+  SerialUSB.print("Precharge:      ");
   SerialUSB.println(config.precharge_voltage);
-  SerialUSB.print("Max Torque FWD:");
+  SerialUSB.print("Max Torque FWD: ");
   SerialUSB.println(config.max_torque_fwd);
-  SerialUSB.print("Max Torque REV:");
+  SerialUSB.print("Max Torque REV: ");
   SerialUSB.println(config.max_torque_rev);
-  SerialUSB.print("Pedal min:     ");
+  SerialUSB.print("Pedal min:      ");
   SerialUSB.println(config.pedal_min);
-  SerialUSB.print("Pedal max:     ");
+  SerialUSB.print("Pedal max:      ");
   SerialUSB.println(config.pedal_max);
-  SerialUSB.print("Regen factor:  ");
+  SerialUSB.print("Regen factor:   ");
   SerialUSB.println(config.regen_factor);
-  SerialUSB.print("Regen limit:   ");
+  SerialUSB.print("Regen limit:    ");
   SerialUSB.println(config.regen_limit);
-  SerialUSB.print("Exp Throttle   ");
+  SerialUSB.print("Exp Throttle    ");
   SerialUSB.println(config.throttle_exp);
+  SerialUSB.print("Oil Pump PWM:   ");
+  SerialUSB.println(config.oil_pump_pwm);
 }
 
 void print_status() {
   SerialUSB.println("");
   SerialUSB.println("Status");
   SerialUSB.println("======");
-  SerialUSB.print("DC Bus:        ");
+  SerialUSB.print("DC Bus:            ");
   SerialUSB.println(dc_bus_voltage);
-  SerialUSB.print("Throttle Pos:  ");
+  SerialUSB.print("Throttle Pos:      ");
   SerialUSB.println(analogRead(Throt1Pin));
-  SerialUSB.print("MG1 Speed:     ");
+  SerialUSB.print("MG1 Speed:         ");
   SerialUSB.println(mg1_speed);
-  SerialUSB.print("MG2 Speed:     ");
+  SerialUSB.print("MG2 Speed:         ");
   SerialUSB.println(mg2_speed);
-  SerialUSB.print("Water Temp:    ");
+  SerialUSB.print("Trans SL1:         ");
+  SerialUSB.println(trans_sl1);
+  SerialUSB.print("Trans SL2:         ");
+  SerialUSB.println(trans_sl1);
+  SerialUSB.print("Water Temp:        ");
   SerialUSB.println(temp_inv_water);
-  SerialUSB.print("Inductor Temp: ");
+  SerialUSB.print("Inductor Temp:     ");
   SerialUSB.println(temp_inv_inductor);
-  SerialUSB.print("Raw MG1 Temp:  ");
+  SerialUSB.print("Raw MG1 Temp:      ");
   SerialUSB.println(analogRead(MG1Temp));
-  SerialUSB.print("Raw MG2 Temp:  ");
+  SerialUSB.print("Raw MG2 Temp:      ");
   SerialUSB.println(analogRead(MG2Temp));
+  SerialUSB.print("Raw Oil Pump Temp: ");
+  SerialUSB.println(analogRead(OilpumpTemp));
+  SerialUSB.print("Raw Trans Temp:    ");
+  SerialUSB.println(analogRead(TransTemp));
+  SerialUSB.print("Trans Solenoid 1:  ");
+  SerialUSB.println(trans_sl1);
+  SerialUSB.print("Trans Solenoid 2:  ");
+  SerialUSB.println(trans_sl2);
+  SerialUSB.print("Oil Pressure 1:    ");
+  SerialUSB.println(analogRead(digitalRead(TransPB1)));
+  SerialUSB.print("Oil Pressure 2:    ");
+  SerialUSB.println(analogRead(digitalRead(TransPB2)));
+  SerialUSB.print("Oil Pressure 3:    ");
+  SerialUSB.println(analogRead(digitalRead(TransPB3)));
 }
 
 uint8_t config_allowed = 0;
@@ -432,13 +427,21 @@ void process_serial(char* buffer) {
       config.precharge_voltage = atoi(buffer+1);
       SerialUSB.println("Precharge voltage set.");
       break;
+    case 'a':
+      if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
+      config.oil_pump_pwm = atoi(buffer+1);
+      SerialUSB.println("Oil pump speed set.");
+      break;
+    case 's':
+      if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
+      trans_sl1 = (atoi(buffer+1) >> 0) & 1;
+      trans_sl2 = (atoi(buffer+1) >> 1) & 1;
+      SerialUSB.println("Transmission solenoids set.");
+      break;
     case 'z':
       if(!config_allowed) { SerialUSB.println("Config changes not allowed."); break; }
       EEPROM.write(0, config);
       SerialUSB.println("Configuration saved.");
-      break;
-    case 'g':
-      shift_gear();
       break;
     case 'E':
       if(!memcmp("ENABLE", buffer, 6)) {
@@ -483,74 +486,122 @@ void read_serial() {
   }
 }
 
-// Highly speculative gear ratio shifting function
-void shift_gear() {
-  if(ratio_state) return; // Ignore shifting requests if already in progress.
-  if(ratio_current == RATIO_LOW) {
-    // It's always safe to switch to high ratio
-    SerialUSB.println("Shifting to HIGH.");
-    ratio_state = 1;
-    ratio_change_started = millis();
-  } else {
-    // It's only safe to switch to low ratio at low rpm
-    SerialUSB.println("Shifting to LOW.");
-    if(mg1_speed < -4000 || mg1_speed > 4000) return;
-    ratio_state = 1;
-    ratio_change_started = millis();
-  }
-}
-
 uint8_t wifi_index;
 void write_wifi() {
   if(wifi_timer.check()) {
     switch(wifi_index) {
-    case 0:
-      Serial2.print("b");
-      Serial2.println(dc_bus_voltage);
-    case 1:
-      Serial2.print("m");
-      Serial2.println(mg1_speed);
-    case 2:
-      Serial2.print("n");
-      Serial2.println(mg2_speed);
-    case 3:
-      Serial2.print("g");
-      Serial2.println(temp_inv_water);
-    case 4:
+    case 0: // Config first
       Serial2.print("e");
       Serial2.println(config.pedal_min);
-    case 5:
+      break;
+    case 1:
       Serial2.print("r");
       Serial2.println(config.pedal_max);
-    case 6:
+      break;
+    case 2:
       Serial2.print("t");
       Serial2.println(config.max_torque_fwd);
-    case 7:
+      break;
+    case 3:
       Serial2.print("y");
       Serial2.println(config.max_torque_rev);
-    case 8:
+      break;
+    case 4:
       Serial2.print("u");
       Serial2.println(config.regen_factor);
-    case 9:
+      break;
+    case 5:
       Serial2.print("i");
       Serial2.println(config.regen_limit);
-    case 10:
+      break;
+    case 6:
       Serial2.print("o");
       Serial2.println(config.throttle_exp);
-    case 11:
+      break;
+    case 7:
       Serial2.print("v");
       Serial2.println(config.precharge_voltage);
+      break;
+    case 8:
+      Serial2.print("a");
+      Serial2.println(config.oil_pump_pwm);
+      break;
+    case 9: // Status follows
+      Serial2.print("b");
+      Serial2.println(dc_bus_voltage);
+      break;
+    case 10:
+      Serial2.print("m");
+      Serial2.println(mg1_speed);
+      break;
+    case 11:
+      Serial2.print("n");
+      Serial2.println(mg2_speed);
+      break;
+    case 12:
+      Serial2.print("g");
+      Serial2.println(temp_inv_water);
+      break;
+    case 13:
+      Serial2.print("h");
+      Serial2.println(analogRead(MG1Temp));
+      break;
+    case 14:
+      Serial2.print("j");
+      Serial2.println(analogRead(MG2Temp));
+      break;
+    case 15:
+      Serial2.print("k");
+      Serial2.println(analogRead(OilpumpTemp));
+      break;
+    case 16:
+      Serial2.print("l");
+      Serial2.println(analogRead(TransTemp));
+      break;
+    case 17:
+      Serial2.print("s");
+      Serial2.println((trans_sl2 << 1) | trans_sl1);
+      break;
+    case 18:
+      Serial2.print("d");
+      Serial2.println(digitalRead(TransPB1));
+      break;
+    case 19:
+      Serial2.print("f");
+      Serial2.println(digitalRead(TransPB2));
+      break;
+    case 20:
+      Serial2.print("g");
+      Serial2.println(digitalRead(TransPB3));
+      break;
     }
-    wifi_index = (wifi_index + 1) % 12;
+    wifi_index = (wifi_index + 1) % 21;
   }
 }
 
 void loop() {
   // If we're not precharged yet, prepare to close contactor.
-  if(!precharge_complete) precharge();
-  // Call main inverter code. Monitor and control.
-  monitor_inverter();
+  precharge();
 
+  // Poll the motor at regular intervals to request status frames
+  poll_inverter();
+
+  // Wait for a status frame from the inverter
+  if(monitor_inverter()) {
+    // Every time we receive a status frame, calculate torque demand, and send a control frame.
+    calculate_torque();
+    control_inverter();
+  }
+
+  // Set the speed of the electric oil pump
+  analogWrite(OilPumpPWM, config.oil_pump_pwm);
+
+  // Set gear ratio solenoids
+  digitalWrite(TransSL1, trans_sl1);
+  digitalWrite(TransSL2, trans_sl2);
+
+  // Wait for control data from USB or wifi
   read_serial();
+  // Write status and configuration data to wifi
   write_wifi();
 }
