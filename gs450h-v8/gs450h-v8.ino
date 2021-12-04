@@ -17,11 +17,10 @@
 #include <due_wire.h>
 #include <Wire_EEPROM.h>
 
-// Two timers are used, one to drive the inverter and a second to send data to the wifi module
+// A timer to periodically poll the inverter for status data
 Metro inverter_timer = Metro(2);
-Metro wifi_timer     = Metro(20);
 
-// There numbers don't mhave any special meaning, they're just labels for convenience.
+// These numbers don't mhave any special meaning, they're just labels for convenience.
 #define REVERSE 1
 #define NEUTRAL 2
 #define DRIVE   3
@@ -33,25 +32,25 @@ Metro wifi_timer     = Metro(20);
 #define PIN_OIL_PUMP_PWM    2 // Oil pump speed control
 #define PIN_OIL_PUMP_POWER 33 // This pin closes the negative and precharge contactors. Always on, could probably be put to better use.
 #define PIN_INV_POWER      34 // Powers up the inverter. Always on, could probably be put to better use.
-#define PIN_TRANS_SL1      47 // Transmission Solenoid 1
-#define PIN_TRANS_SL2      44 // Transmission Solenoid 2
-#define PIN_TRANS_SP       45 // Oil pressure solenoid, we likely don't need to use this if we control the oil pump
+#define PIN_TRANS_SL1      47 // Transmission Solenoid 1, not used yet
+#define PIN_TRANS_SL2      44 // Transmission Solenoid 2, not used yet
+#define PIN_TRANS_SP       45 // Oil pressure solenoid, not used yet
 
 #define PIN_IN1            6  // High when gear level is in FWD position (D/B)
 #define PIN_IN2            7  // High when gear level is in REV position (R)
-#define PIN_BRAKE_IN      62  // Not currently used. I will likely use for gear lever "B" position.
+#define PIN_BRAKE_IN      62  // Not yet used. I will likely use for gear lever "B" position.
 
-#define PIN_TRANS_PB1     40  // Oil pressure sensor
-#define PIN_TRANS_PB2     43  // Oil pressure sensor
-#define PIN_TRANS_PB3     42  // Oil pressure sensor
+#define PIN_TRANS_PB1     40  // Oil pressure sensor, not yet used
+#define PIN_TRANS_PB2     43  // Oil pressure sensor, not yet used
+#define PIN_TRANS_PB3     42  // Oil pressure sensor, not yet used
 
 #define PIN_THROTTLE1     A0  // Throttle 1 input.
-#define PIN_THROTTLE2     A1  // Throttle 2 input.
+#define PIN_THROTTLE2     A1  // Throttle 2 input, not yet used
 
-#define PIN_OIL_PUMP_TEMP A7  // Temperature sensor
-#define PIN_TRANS_TEMP    A4  // Temperature sensor
-#define PIN_MG1_TEMP      A5  // Temperature sensor
-#define PIN_MG2_TEMP      A6  // Temperature sensor
+#define PIN_OIL_PUMP_TEMP A7  // Temperature sensor, not yet used
+#define PIN_TRANS_TEMP    A4  // Temperature sensor, not yet used
+#define PIN_MG1_TEMP      A5  // Temperature sensor, not yet used
+#define PIN_MG2_TEMP      A6  // Temperature sensor, not yet used
 
 // Hard limits
 #define MAX_SPEED   12000
@@ -120,8 +119,8 @@ void calculate_torque()
   // If enabled, create an exponential curve that gives more control of low speed / regen.
   if(config.throttle_exp) throttle = throttle * throttle / 1000;
 
-  // Calculate regen amount based on % of mg2 speed and maximum limit
-  int regen = -mg2_speed * config.regen_factor / 100;
+  // Calculate regen amount based on % of mg1 speed and maximum limit
+  int regen = mg1_speed * config.regen_factor / 100;
   regen = constrain(regen, -config.regen_limit, config.regen_limit);
 
   // Map throttle pedal curve so that minimum is full regen and max is full torque
@@ -153,10 +152,10 @@ void setup() {
   pinMode(PIN_TRANS_SP, OUTPUT);
 
   // Set defalt pin states
-  digitalWrite(PIN_REQ, LOW);         // This initial state is unimportant
+  digitalWrite(PIN_REQ, LOW);             // This initial state is unimportant
   digitalWrite(PIN_INV_POWER, HIGH);      // Turn on inverter
-  digitalWrite(PIN_OIL_PUMP_POWER, HIGH);  // Begin HV precharge
-  digitalWrite(PIN_OUT1, LOW);           // Turn off main contactor
+  digitalWrite(PIN_OIL_PUMP_POWER, HIGH); // Begin HV precharge
+  digitalWrite(PIN_OUT1, LOW);            // Turn off main contactor
   digitalWrite(PIN_TRANS_SL1, LOW);       // Turn off at startup.
   digitalWrite(PIN_TRANS_SL2, LOW);       // Turn off at startup.
   digitalWrite(PIN_TRANS_SP, LOW);        // Turn off at startup, not used yet.
@@ -280,41 +279,6 @@ uint8_t monitor_inverter() {
     return(1);
   }
   return(0);
-}
-
-// Process serial data
-void process_serial(char* buffer) {
-  memset(buffer, 0, UART_BUFFER_SIZE);
-}
-
-// Buffers for serial communication
-char rx_buffer_wifi[UART_BUFFER_SIZE];
-uint8_t rx_buffer_offset_wifi;
-char rx_buffer_usb[UART_BUFFER_SIZE];
-uint8_t rx_buffer_offset_usb;
-
-// Read data from a serial port
-void read_serial(Stream &port, char* buffer, uint8_t* offset) {
-  uint8_t rx_byte;
-  rx_byte = port.read();
-  port.write(rx_byte); // Echo bytes back to the sender
-  if(rx_byte == 0x0a) {
-    // Received a newline, process the buffer
-    process_serial(rx_buffer_wifi);
-    rx_buffer_offset_wifi = 0;
-  } else {
-    // Received a non-newline, append it to the buffer
-    if(rx_buffer_offset_wifi < UART_BUFFER_SIZE)
-      rx_buffer_wifi[rx_buffer_offset_wifi++] = rx_byte;
-  }
-}
-
-// Check serial ports for data
-void check_serial() {
-  while(Serial2.available())
-    read_serial(Serial2, rx_buffer_wifi, &rx_buffer_offset_wifi);
-  while(SerialUSB.available())
-    read_serial(SerialUSB, rx_buffer_usb, &rx_buffer_offset_usb);
 }
 
 void loop() {
