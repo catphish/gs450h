@@ -37,6 +37,10 @@ uint8_t set_config(char* name, uint32_t value) {
     config.throttle_exp = value; return 1;
   } else if(!strcmp(name, "oil_pump_pwm")) {
     config.oil_pump_pwm = value; return 1;
+  // } else if(!strcmp(name, "trans_sl")) {
+  //   trans_sl1 = !!(value & 1);
+  //   trans_sl2 = !!(value & 2);
+  //   return 1;
   }
   return 0;
 }
@@ -99,8 +103,10 @@ void send_json(Stream &port) {
   send_json_param(port, "oil_pump_pwm",      "Trasmission", "",  8, config.oil_pump_pwm,      0, 255, 0);       port.print(",");
   send_json_value(port, "version",                          "" ,    SOFTWARE_VERSION);                          port.print(",");
   send_json_value(port, "dc_bus_voltage",                   "V",    dc_bus_voltage);                            port.print(",");
+  send_json_value(port, "trans_sl1",                        "",     trans_sl1);                                 port.print(",");
+  send_json_value(port, "trans_sl2",                        "",     trans_sl2);                                 port.print(",");
   send_json_value(port, "trans_pb1",                        "",     digitalRead(PIN_TRANS_PB1));                port.print(",");
-  send_json_value(port, "trans_pb3",                        "",     digitalRead(PIN_TRANS_PB2));                port.print(",");
+  send_json_value(port, "trans_pb2",                        "",     digitalRead(PIN_TRANS_PB2));                port.print(",");
   send_json_value(port, "trans_pb3",                        "",     digitalRead(PIN_TRANS_PB3));                port.print(",");
   send_json_value(port, "throttle1",                        "",     analogRead(PIN_THROTTLE1));                 port.print(",");
   send_json_value(port, "mg1_torque",                       "",     mg1_torque);                                port.print(",");

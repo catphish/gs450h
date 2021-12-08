@@ -281,6 +281,21 @@ uint8_t monitor_inverter() {
   return(0);
 }
 
+void choose_ratio() {
+  if( mg1_speed > 50) return;
+  if(-mg1_speed > 50) return;
+  if(digitalRead(PIN_BRAKE_IN)) {
+    trans_sl1 = 1;
+    trans_sl2 = 1;
+  } else {
+    trans_sl1 = 0;
+    trans_sl2 = 0;
+  }
+  // Set gear ratio solenoids
+  digitalWrite(PIN_TRANS_SL1, trans_sl1);
+  digitalWrite(PIN_TRANS_SL2, trans_sl2);
+}
+
 void loop() {
   // If we're not precharged yet, prepare to close contactor.
   precharge();
@@ -292,15 +307,13 @@ void loop() {
   if(monitor_inverter()) {
     // Every time we receive a status frame, calculate torque demand, and send a control frame.
     calculate_torque();
+    choose_ratio(); // Note the ratio switching code may override calculated torque
     control_inverter();
   }
 
   // Set the speed of the electric oil pump
   analogWrite(PIN_OIL_PUMP_PWM, config.oil_pump_pwm);
 
-  // Set gear ratio solenoids
-  digitalWrite(PIN_TRANS_SL1, trans_sl1);
-  digitalWrite(PIN_TRANS_SL2, trans_sl2);
 
   // Wait for control data from USB or wifi
   check_serial();
