@@ -32,17 +32,17 @@ Metro inverter_timer = Metro(2);
 #define PIN_OIL_PUMP_PWM    2 // Oil pump speed control
 #define PIN_OIL_PUMP_POWER 33 // This pin closes the negative and precharge contactors. Always on, could probably be put to better use.
 #define PIN_INV_POWER      34 // Powers up the inverter. Always on, could probably be put to better use.
-#define PIN_TRANS_SL1      47 // Transmission Solenoid 1, not used yet
-#define PIN_TRANS_SL2      44 // Transmission Solenoid 2, not used yet
-#define PIN_TRANS_SP       45 // Oil pressure solenoid, not used yet
+#define PIN_TRANS_SL1      47 // Transmission Solenoid 1
+#define PIN_TRANS_SL2      44 // Transmission Solenoid 2
+#define PIN_TRANS_SP       45 // Oil pressure solenoid, not used
 
 #define PIN_IN1            6  // High when gear level is in FWD position (D/B)
 #define PIN_IN2            7  // High when gear level is in REV position (R)
-#define PIN_BRAKE_IN      62  // Not yet used. I will likely use for gear lever "B" position.
+#define PIN_BRAKE_IN      62  // High level selects low gear ratio
 
-#define PIN_TRANS_PB1     40  // Oil pressure sensor, not yet used
-#define PIN_TRANS_PB2     43  // Oil pressure sensor, not yet used
-#define PIN_TRANS_PB3     42  // Oil pressure sensor, not yet used
+#define PIN_TRANS_PB1     40  // Oil pressure sensor, displayed in web interface, otherwise unused
+#define PIN_TRANS_PB2     43  // Oil pressure sensor, displayed in web interface, otherwise unused
+#define PIN_TRANS_PB3     42  // Oil pressure sensor, displayed in web interface, otherwise unused
 
 #define PIN_THROTTLE1     A0  // Throttle 1 input.
 #define PIN_THROTTLE2     A1  // Throttle 2 input, not yet used
@@ -111,6 +111,8 @@ uint8_t precharge_complete = 0;
 void calculate_torque()
 {
   uint8_t gear = get_gear();
+  // Force neutral if the main contactor hasn't closed yet
+  if(!precharge_complete) gear = NEUTRAL;
   // Normalize throttle 1 input to 0-1000
   int throttle = analogRead(PIN_THROTTLE1);
   throttle = map(throttle, config.pedal_min, config.pedal_max, 0, 1000);
