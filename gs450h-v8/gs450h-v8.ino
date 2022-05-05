@@ -300,7 +300,7 @@ void choose_ratio() {
 
 void loop() {
   // If we're not precharged yet, prepare to close contactor.
-  precharge();
+  if(!precharge_complete) precharge();
 
   // Poll the motor at regular intervals to request status frames
   poll_inverter();
