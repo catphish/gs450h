@@ -277,6 +277,8 @@ uint8_t monitor_inverter() {
       mg2_speed = mth_data[31] | mth_data[32] << 8;
       if(mth_data[1])
         inv_initialized = 1; // Inverter now initialized
+      else
+        inv_initialized = 0; // In case inverter is reset
     }
     return(1);
   }
