@@ -53,7 +53,7 @@ Metro inverter_timer = Metro(2);
 #define PIN_MG2_TEMP      A6  // Temperature sensor, not yet used
 
 // Hard limits
-#define MAX_SPEED   12000
+#define MAX_SPEED   6000
 #define MAX_CURRENT 27500
 #define MAX_REGEN   -5000
 
@@ -122,11 +122,12 @@ void calculate_torque()
   if(config.throttle_exp) throttle = throttle * throttle / 1000;
 
   // Calculate regen amount based on % of mg1 speed and maximum limit
-  int regen = mg1_speed * config.regen_factor / 100;
+  int32_t regen_speed = mg1_speed;
+  int32_t regen = regen_speed * config.regen_factor / 100;
   regen = constrain(regen, -config.regen_limit, config.regen_limit);
 
   // Map throttle pedal curve so that minimum is full regen and max is full torque
-  uint16_t torque;
+  uint32_t torque;
   if(gear==DRIVE)        torque = map(throttle, 0, 1000, regen,  config.max_torque_fwd);
   else if(gear==REVERSE) torque = map(throttle, 0, 1000, regen, -config.max_torque_rev);
   else                   torque = 0;  // If we're not in FWD or REV default to no torque.
