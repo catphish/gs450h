@@ -1,17 +1,17 @@
 /* Basic software to run the Lexus GS450H hybrid transmission and inverter using the open source V1 controller
- * Take an analog throttle signal and converts to a torque command to MG1 and MG2
- * Feedback provided over USB serial
- * V3  - Reverse added
- * V4  - CAN specific to BMW E65 735i project
- * V5  - WiFi connection on USART2 at 19200 baud
- * V6  - add ISA CAN shunt connectivity. Note V2 hardware only. 
- * V7  - add HV precharge and control- oil pump relay=midpack and precharge contactor, out1= main contactor.
- * V8  - Refactor and simplity by CS. Support for standard openinverter serial interface and wifi
- * 
- * Copyright 2019 T.Darby , D.Maguire, C.Smurthwaite
- * openinverter.org
- * evbmw.com
- */
+   Take an analog throttle signal and converts to a torque command to MG1 and MG2
+   Feedback provided over USB serial
+   V3  - Reverse added
+   V4  - CAN specific to BMW E65 735i project
+   V5  - WiFi connection on USART2 at 19200 baud
+   V6  - add ISA CAN shunt connectivity. Note V2 hardware only.
+   V7  - add HV precharge and control- oil pump relay=midpack and precharge contactor, out1= main contactor.
+   V8  - Refactor and simplity by CS. Support for standard openinverter serial interface and wifi
+
+   Copyright 2019 T.Darby , D.Maguire, C.Smurthwaite
+   openinverter.org
+   evbmw.com
+*/
 
 #include <Metro.h>
 #include <due_wire.h>
@@ -77,20 +77,20 @@ struct {
 
 // Read PIN_IN1 and PIN_IN2 and decide whether we're in FWD, REV, or neutral
 uint8_t get_gear() {
-  if(digitalRead(PIN_IN1))
-      return(DRIVE);
-  if(digitalRead(PIN_IN2))
-      return(REVERSE);
-  return(NEUTRAL);
+  if (digitalRead(PIN_IN1))
+    return (DRIVE);
+  if (digitalRead(PIN_IN2))
+    return (REVERSE);
+  return (NEUTRAL);
 }
 
 // Memory for data packets and default contents. MTH data comes from the inverter. HTM messages (setup and normal) are sent to it.
 uint8_t mth_data[100];
-uint8_t htm_data_setup[80]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,0,25,0,0,0,0,0,0,0,128,0,0,0,128,0,0,0,37,1};
-uint8_t htm_data[80]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,255,0,0,0,0,0,0,0,0,0}; 
+uint8_t htm_data_setup[80] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 25, 0, 0, 0, 0, 0, 0, 0, 128, 0, 0, 0, 128, 0, 0, 0, 37, 1};
+uint8_t htm_data[80] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
 // Only used for diagnostic output
-int16_t dc_bus_voltage=0,temp_inv_water=0,temp_inv_inductor=0;
+int16_t dc_bus_voltage = 0, temp_inv_water = 0, temp_inv_inductor = 0;
 
 // Useful to have these globally available
 int16_t mg1_torque = 0;
@@ -112,14 +112,14 @@ void calculate_torque()
 {
   uint8_t gear = get_gear();
   // Force neutral if the main contactor hasn't closed yet
-  if(!precharge_complete) gear = NEUTRAL;
+  if (!precharge_complete) gear = NEUTRAL;
   // Normalize throttle 1 input to 0-1000
   int throttle = analogRead(PIN_THROTTLE1);
   throttle = map(throttle, config.pedal_min, config.pedal_max, 0, 1000);
   throttle = constrain(throttle, 0, 1000);
 
   // If enabled, create an exponential curve that gives more control of low speed / regen.
-  if(config.throttle_exp) throttle = throttle * throttle / 1000;
+  if (config.throttle_exp) throttle = throttle * throttle / 1000;
 
   // Calculate regen amount based on % of mg1 speed and maximum limit
   int32_t regen_speed = mg1_speed;
@@ -128,19 +128,19 @@ void calculate_torque()
 
   // Map throttle pedal curve so that minimum is full regen and max is full torque
   uint32_t torque;
-  if(gear==DRIVE)        torque = map(throttle, 0, 1000, regen,  config.max_torque_fwd);
-  else if(gear==REVERSE) torque = map(throttle, 0, 1000, regen, -config.max_torque_rev);
+  if (gear == DRIVE)        torque = map(throttle, 0, 1000, regen,  config.max_torque_fwd);
+  else if (gear == REVERSE) torque = map(throttle, 0, 1000, regen, -config.max_torque_rev);
   else                   torque = 0;  // If we're not in FWD or REV default to no torque.
 
   // Hard cut torque if MG1 is overspeed
-  if((mg1_speed>MAX_SPEED)||(-mg1_speed>MAX_SPEED)) torque=0;
+  if ((mg1_speed > MAX_SPEED) || (-mg1_speed > MAX_SPEED)) torque = 0;
 
   // MG1 torque is set to MG2 * 1.25.
   mg2_torque = torque;
-  mg1_torque=((torque*5)/4);
+  mg1_torque = ((torque * 5) / 4);
 
   // We don't use mg1 in reverse.
-  if(gear==REVERSE)mg1_torque=0;
+  if (gear == REVERSE)mg1_torque = 0;
 }
 
 void setup() {
@@ -177,18 +177,18 @@ void setup() {
 
   Serial1.begin(250000); // Inverter
   Serial2.begin(115200); // Wifi Module
-  
+
   // I don't know what these magic constants do, but I assume
   // they are necessary for the sync serial port to work.
-  PIOA->PIO_ABSR |= 1<<17;
-  PIOA->PIO_PDR |= 1<<17;
-  USART0->US_MR |= 1<<4 | 1<<8 | 1<<18;
+  PIOA->PIO_ABSR |= 1 << 17;
+  PIOA->PIO_PDR |= 1 << 17;
+  USART0->US_MR |= 1 << 4 | 1 << 8 | 1 << 18;
 
   // Black magic from previous gurus
-  htm_data[63]=(MAX_REGEN)&0xFF;   // Max regen
-  htm_data[64]=((MAX_REGEN)>>8);
-  htm_data[65]=(MAX_CURRENT)&0xFF; // Max discharge
-  htm_data[66]=((MAX_CURRENT)>>8);
+  htm_data[63] = (MAX_REGEN) & 0xFF; // Max regen
+  htm_data[64] = ((MAX_REGEN) >> 8);
+  htm_data[65] = (MAX_CURRENT) & 0xFF; // Max discharge
+  htm_data[66] = ((MAX_CURRENT) >> 8);
 
   // Read configuration
   EEPROM.read(0, config);
@@ -210,11 +210,11 @@ void setup() {
 
 // Close the main contactor once inverter DC bus voltage reaches defined value.
 void precharge() {
-    if (inv_initialized && (dc_bus_voltage > config.precharge_voltage)) {
-        delay(500);
-        digitalWrite(PIN_OUT1,HIGH);
-        precharge_complete = 1;
-    }
+  if (inv_initialized && (dc_bus_voltage > config.precharge_voltage)) {
+    delay(500);
+    digitalWrite(PIN_OUT1, HIGH);
+    precharge_complete = 1;
+  }
 }
 
 // Send a control packet to the inverter to set the torque of MG1
@@ -223,73 +223,76 @@ void control_inverter() {
   // Black magic from previous gurus. Thanks! I'd love some more info on these data structures.
   int speedSum = mg2_speed + mg1_speed;
   speedSum /= 113;
-  htm_data[0]=(byte)speedSum;
+  htm_data[0] = (byte)speedSum;
   htm_data[75] = (mg1_torque * 4) & 0xFF;
   htm_data[76] = ((mg1_torque * 4) >> 8);
-  
+
   //mg1
   htm_data[5] = (mg1_torque * -1) & 0xFF; // Negative!
   htm_data[6] = ((mg1_torque * -1) >> 8);
   htm_data[11] = htm_data[5];
   htm_data[12] = htm_data[6];
-  
+
   //mg2
   htm_data[26] = (mg2_torque) & 0xFF; // Positive
   htm_data[27] = ((mg2_torque) >> 8);
   htm_data[32] = htm_data[26];
   htm_data[33] = htm_data[27];
-  
+
   // Calculate simple checksum
   uint16_t htm_checksum = 0;
-  for(byte i=0; i<78; i++) htm_checksum += htm_data[i];
+  for (byte i = 0; i < 78; i++) htm_checksum += htm_data[i];
   htm_data[78] = htm_checksum & 0xFF;
   htm_data[79] = htm_checksum >> 8;
-  
+
   // Send control frame (init frames until inverter responds, then normal control frames)
-  if(inv_initialized) Serial1.write(htm_data, 80);
+  if (inv_initialized) Serial1.write(htm_data, 80);
   else Serial1.write(htm_data_setup, 80);
 }
 
 // Every 2ms toggle request line to request inverter status
 void poll_inverter() {
-  if(inverter_timer.check()) {
-    digitalWrite(PIN_REQ,!digitalRead(PIN_REQ));
+  if (inverter_timer.check()) {
+    digitalWrite(PIN_REQ, !digitalRead(PIN_REQ));
   }
 }
 
 // Wait for 100 bytes of status data, when a frame has been received, parse it.
 // Return true when a frame has been received from the inverter.
 uint8_t monitor_inverter() {
-  if(Serial1.available() >= 100) {
+  if (Serial1.available() >= 100) {
     Serial1.readBytes(mth_data, 100);
     // Discard any unexpected extra bytes to ensure we stay in sync
-    while(Serial1.available()) { Serial1.read(); delay(1); }
+    while (Serial1.available()) {
+      Serial1.read();
+      delay(1);
+    }
     // Check message checksum
     uint16_t mth_checksum = 0;
-    for(int i=0;i<98;i++) mth_checksum += mth_data[i];
-    uint8_t mth_good = (mth_checksum == (mth_data[98] | (mth_data[99]<<8)));
+    for (int i = 0; i < 98; i++) mth_checksum += mth_data[i];
+    uint8_t mth_good = (mth_checksum == (mth_data[98] | (mth_data[99] << 8)));
 
     // Calculate status information from received data
-    if(mth_good) {
+    if (mth_good) {
       dc_bus_voltage = (((mth_data[82] | mth_data[83] << 8) - 5) / 2);
       temp_inv_water = (mth_data[42] | mth_data[43] << 8);
       temp_inv_inductor = (mth_data[86] | mth_data[87] << 8);
       mg1_speed = mth_data[6] | mth_data[7] << 8;
       mg2_speed = mth_data[31] | mth_data[32] << 8;
-      if(mth_data[1])
-        inv_initialized = 1; // Inverter now initialized
+      if (mth_data[1])
+        inv_initialized = 1; // Invamitialized
       else
         inv_initialized = 0; // In case inverter is reset
     }
-    return(1);
+    return (1);
   }
-  return(0);
+  return (0);
 }
 
 void choose_ratio() {
-  if( mg1_speed > 50) return;
-  if(-mg1_speed > 50) return;
-  if(digitalRead(PIN_BRAKE_IN)) {
+  if ( mg1_speed > 50) return;
+  if (-mg1_speed > 50) return;
+  if (digitalRead(PIN_BRAKE_IN)) {
     trans_sl1 = 1;
     trans_sl2 = 1;
   } else {
@@ -303,13 +306,13 @@ void choose_ratio() {
 
 void loop() {
   // If we're not precharged yet, prepare to close contactor.
-  if(!precharge_complete) precharge();
+  if (!precharge_complete) precharge();
 
   // Poll the motor at regular intervals to request status frames
   poll_inverter();
 
   // Wait for a status frame from the inverter
-  if(monitor_inverter()) {
+  if (monitor_inverter()) {
     // Every time we receive a status frame, calculate torque demand, and send a control frame.
     calculate_torque();
     choose_ratio(); // Note the ratio switching code may override calculated torque
