@@ -109,6 +109,7 @@ void send_json(Stream &port) {
   send_json_value(port, "trans_pb2",                        "",     digitalRead(PIN_TRANS_PB2));                port.print(",");
   send_json_value(port, "trans_pb3",                        "",     digitalRead(PIN_TRANS_PB3));                port.print(",");
   send_json_value(port, "throttle1",                        "",     analogRead(PIN_THROTTLE1));                 port.print(",");
+  send_json_value(port, "brake_in",                         "",     analogRead(PIN_BRAKE_IN));                  port.print(",");
   send_json_value(port, "mg1_torque",                       "",     mg1_torque);                                port.print(",");
   send_json_value(port, "mg2_torque",                       "",     mg2_torque);                                port.print(",");
   send_json_value(port, "mg1_speed",                        "rpm",  mg1_speed);                                 port.print(",");
