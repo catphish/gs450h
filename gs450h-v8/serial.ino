@@ -18,7 +18,7 @@ void send_json_value(Stream &port, char* name, char* unit, uint32_t value) {
 }
 
 // Set a parameter by name
-uint8_t set_config(char* name, uint32_t value) {
+uint8_t set_config(char* name, int32_t value) {
   if(!strcmp(name, "precharge_voltage")) {
     config.precharge_voltage = value; return 1;
   } else if(!strcmp(name, "max_torque_fwd")) {
@@ -46,7 +46,7 @@ uint8_t set_config(char* name, uint32_t value) {
 }
 
 // Get a parameter by name
-uint8_t get_config(char* name) {
+int32_t get_config(char* name) {
   if(!strcmp(name, "precharge_voltage")) {
     return config.precharge_voltage;
   } else if(!strcmp(name, "max_torque_fwd")) {
@@ -139,7 +139,7 @@ void process_serial(Stream &port, char* buffer) {
   } else if(!strcmp(cmd, "set")) {
     char* param_name = strtok(NULL, " ");
     char* param_value_s = strtok(NULL, " ");
-    uint32_t param_value = atoi(param_value_s);
+    int32_t param_value = atoi(param_value_s);
     if(set_config(param_name, param_value))
       port.println("Paramater set successfully!");
     else
@@ -147,7 +147,7 @@ void process_serial(Stream &port, char* buffer) {
   } else if(!strcmp(cmd, "get")) {
     char* param_name;
     while(param_name = strtok(NULL, ",")) {
-      uint32_t param_value = get_config(param_name);
+      int32_t param_value = get_config(param_name);
       port.print(param_value);
       port.print(".0");
       port.print("\r\n");
