@@ -107,9 +107,33 @@ uint8_t inv_initialized = 0;
 // This value switches to 1 then the main contactor closes.
 uint8_t precharge_complete = 0;
 
+// Threshold for detecting discrepancy between throttle sensors
+const float THRESHOLD = 0.2;
+
+// Function to check the health of throttle pedal sensors
+bool checkThrottleSensors() {
+  int Throt1Val = analogRead(PIN_THROTTLE1);
+  int Throt2Val = analogRead(PIN_THROTTLE2);
+
+  // Check if the two sensors are within a specified tolerance
+  if (abs(Throt2Val - (Throt1Val / 2)) < THRESHOLD) {
+    return true;  // Sensors are within tolerance
+  } else {
+    return false; // Sensors are not within tolerance, potential fault
+  }
+}
+
 // Based on gear and throttle position, calculate desired torque.
 void calculate_torque()
 {
+  // Check if throttle sensors are healthy
+  if (!checkThrottleSensors()) {
+    // If sensors are not within tolerance, set torque to zero and exit function
+    mg1_torque = 0;
+    mg2_torque = 0;
+    return; // Exit the function early
+  }
+
   uint8_t gear = get_gear();
   // Force neutral if the main contactor hasn't closed yet
   if (!precharge_complete) gear = NEUTRAL;
